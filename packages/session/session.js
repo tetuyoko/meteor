@@ -1,119 +1,124 @@
-// XXX could use some tests
+// XXX come up with a serialization method which canonicalizes object key
+// order, which would allow us to use objects as values for equals.
+var stringify = function (value) {
+  if (value === undefined)
+    return 'undefined';
+  return EJSON.stringify(value);
+};
+var parse = function (serialized) {
+  if (serialized === undefined || serialized === 'undefined')
+    return undefined;
+  return EJSON.parse(serialized);
+};
 
 Session = _.extend({}, {
-  keys: {},
-  key_deps: {}, // key -> context id -> context
-  key_value_deps: {}, // key -> value -> context id -> context
-
-  // XXX remove debugging method (or improve it, but anyway, don't
-  // ship it in production)
-  dump_state: function () {
-    var self = this;
-    console.log("=== Session state ===");
-    for (var key in self.key_deps) {
-      var ids = _.keys(self.key_deps[key]);
-      if (!ids.length)
-        continue;
-      console.log(key + ": " + _.reject(ids, function (x) {return x === "_once"}).join(' '));
-    }
-
-    for (var key in self.key_value_deps) {
-      for (var value in self.key_value_deps[key]) {
-        var ids = _.keys(self.key_value_deps[key][value]);
-        if (!ids.length)
-          continue;
-        console.log(key + "(" + value + "): " + _.reject(ids, function (x) {return x === "_once";}).join(' '));
-      }
-    }
-  },
+  keys: {}, // key -> value
+  keyDeps: {}, // key -> Dependency
+  keyValueDeps: {}, // key -> value -> Dependency
 
   set: function (key, value) {
     var self = this;
 
-    var old_value = self.keys[key];
-    if (value === old_value)
+    value = stringify(value);
+
+    var oldSerializedValue = 'undefined';
+    if (_.has(self.keys, key)) oldSerializedValue = self.keys[key];
+    if (value === oldSerializedValue)
       return;
     self.keys[key] = value;
 
-    var invalidate = function (map) {
-      if (map)
-        for (var id in map)
-          map[id].invalidate();
+    var changed = function (v) {
+      v && v.changed();
     };
 
-    self._ensureKey(key);
-    invalidate(self.key_deps[key]);
-    invalidate(self.key_value_deps[key][old_value]);
-    invalidate(self.key_value_deps[key][value]);
+    changed(self.keyDeps[key]);
+    if (self.keyValueDeps[key]) {
+      changed(self.keyValueDeps[key][oldSerializedValue]);
+      changed(self.keyValueDeps[key][value]);
+    }
+  },
+
+  setDefault: function (key, value) {
+    var self = this;
+    // for now, explicitly check for undefined, since there is no
+    // Session.clear().  Later we might have a Session.clear(), in which case
+    // we should check if it has the key.
+    if (self.keys[key] === undefined) {
+      self.set(key, value);
+    }
   },
 
   get: function (key) {
     var self = this;
-    var context = Meteor.deps.Context.current;
     self._ensureKey(key);
-
-    if (context && !(context.id in self.key_deps[key])) {
-      self.key_deps[key][context.id] = context;
-      context.on_invalidate(function () {
-        delete self.key_deps[key][context.id];
-      });
-    }
-
-    return self.keys[key];
+    self.keyDeps[key].depend();
+    return parse(self.keys[key]);
   },
 
   equals: function (key, value) {
     var self = this;
-    var context = Meteor.deps.Context.current;
 
+    // We don't allow objects (or arrays that might include objects) for
+    // .equals, because JSON.stringify doesn't canonicalize object key
+    // order. (We can make equals have the right return value by parsing the
+    // current value and using EJSON.equals, but we won't have a canonical
+    // element of keyValueDeps[key] to store the dependency.) You can still use
+    // "EJSON.equals(Session.get(key), value)".
+    //
+    // XXX we could allow arrays as long as we recursively check that there
+    // are no objects
     if (typeof value !== 'string' &&
         typeof value !== 'number' &&
         typeof value !== 'boolean' &&
-        value !== null && value !== undefined)
-      throw new Error("Session.equals: value can't be an object");
+        typeof value !== 'undefined' &&
+        !(value instanceof Date) &&
+        !(typeof Meteor.Collection !== 'undefined' && value instanceof Meteor.Collection.ObjectID) &&
+        value !== null)
+      throw new Error("Session.equals: value must be scalar");
+    var serializedValue = stringify(value);
 
-    if (context) {
+    if (Deps.active) {
       self._ensureKey(key);
-      if (!(value in self.key_value_deps[key]))
-        self.key_value_deps[key][value] = {};
 
-      if (!(context.id in self.key_value_deps[key][value])) {
-        self.key_value_deps[key][value][context.id] = context;
-        context.on_invalidate(function () {
-          delete self.key_value_deps[key][value][context.id];
+      if (! _.has(self.keyValueDeps[key], serializedValue))
+        self.keyValueDeps[key][serializedValue] = new Deps.Dependency;
 
-          // clean up [key][value] if it's now empty, so we don't use
-          // O(n) memory for n = values seen ever
-          for (var x in self.key_value_deps[key][value])
-            return;
-          delete self.key_value_deps[key][value];
+      var isNew = self.keyValueDeps[key][serializedValue].depend();
+      if (isNew) {
+        Deps.onInvalidate(function () {
+          // clean up [key][serializedValue] if it's now empty, so we don't
+          // use O(n) memory for n = values seen ever
+          if (! self.keyValueDeps[key][serializedValue].hasDependents())
+            delete self.keyValueDeps[key][serializedValue];
         });
       }
     }
 
-    return self.keys[key] === value;
+    var oldValue = undefined;
+    if (_.has(self.keys, key)) oldValue = parse(self.keys[key]);
+    return EJSON.equals(oldValue, value);
   },
 
   _ensureKey: function (key) {
     var self = this;
-    if (!(key in self.key_deps)) {
-      self.key_deps[key] = {};
-      self.key_value_deps[key] = {};
+    if (!(key in self.keyDeps)) {
+      self.keyDeps[key] = new Deps.Dependency;
+      self.keyValueDeps[key] = {};
     }
   }
 });
 
 
 if (Meteor._reload) {
-  Meteor._reload.on_migrate('session', function () {
+  Meteor._reload.onMigrate('session', function () {
     // XXX sanitize and make sure it's JSONible?
     return [true, {keys: Session.keys}];
   });
 
   (function () {
-    var migration_data = Meteor._reload.migration_data('session');
-    if (migration_data && migration_data.keys) {
-      Session.keys = migration_data.keys;
+    var migrationData = Meteor._reload.migrationData('session');
+    if (migrationData && migrationData.keys) {
+      Session.keys = migrationData.keys;
     }
   })();
 }

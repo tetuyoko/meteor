@@ -1,5 +1,5 @@
 <head>
-  <title>Meteor</title>
+  <title>Documentation - Meteor</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" href="favicon.ico" type="image/x-icon" />
   <link rel="shortcut icon" href="favicon.ico" type="image/x-icon" />
@@ -11,7 +11,7 @@
   </div>
   <div id="main">
     <div id="top"></div>
-    <h2 class="main-headline">Meteor 0.3.5</h1>
+    {{> headline }}
     {{> introduction }}
     {{> concepts }}
     {{> api }}
@@ -28,13 +28,17 @@
   {{/if}}
   {{#if type "section"}}
     <h{{depth}}><a href="#{{id}}" class="{{maybe_current}} {{style}}">
-        {{#if instance}}<i>{{instance}}</i>.{{/if}}{{name}}
+        {{#if prefix}}{{prefix}}.{{/if}}{{#if instance}}<i>{{instance}}</i>.{{/if}}{{name}}
     </a></h{{depth}}>
   {{/if}}
   {{/each}}
 </div>
 </template>
 
+<!-- This only is displayed on narrow displays (eg phone) -->
+<template name="headline">
+  <h1 class="main-headline">Meteor {{release}}</h1>
+</template>
 
 
 <template name="dtdd_helper">

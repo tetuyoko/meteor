@@ -1,26 +1,106 @@
 var running = true;
 
+var resultTree = [];
+var failedTests = [];
+var resultsDeps = new Deps.Dependency;
+var countDeps = new Deps.Dependency;
+var totalCount = 0;
+var passedCount = 0;
+var failedCount = 0;
+
+
+Session.setDefault("groupPath", ["tinytest"]);
+Session.set("rerunScheduled", false);
+
 Meteor.startup(function () {
+  Deps.flush();
   Meteor._runTestsEverywhere(reportResults, function () {
     running = false;
-    _resultsChanged();
-  });
+    Meteor.onTestsComplete && Meteor.onTestsComplete();
+    resultsDeps.changed();
+    Deps.flush();
+
+    Meteor.default_connection._unsubscribeAll();
+  }, Session.get("groupPath"));
+
+});
+
+Template.progressBar.running = function () {
+  countDeps.depend();
+  return passedCount + failedCount < totalCount;
+};
+
+Template.progressBar.percentPass = function () {
+  countDeps.depend();
+  if (totalCount === 0)
+    return 0;
+  return 100*passedCount/totalCount;
+};
+
+Template.progressBar.totalCount = function () {
+  return totalCount;
+};
+
+Template.progressBar.passedCount = function () {
+  return passedCount;
+};
+
+Template.progressBar.percentFail = function () {
+  countDeps.depend();
+  if (totalCount === 0)
+    return 0;
+  return 100*failedCount/totalCount;
+};
+
+Template.progressBar.anyFail = function () {
+  countDeps.depend();
+  return failedCount > 0;
+};
+
+Template.groupNav.groupPaths = function () {
+  var groupPath = Session.get("groupPath");
+  var ret = [];
+  for (var i = 1; i <= groupPath.length; i++) {
+    ret.push({path: groupPath.slice(0,i), name: groupPath[i-1]});
+  }
+  return ret;
+};
+
+Template.groupNav.rerunScheduled = function () {
+  return Session.get("rerunScheduled");
+};
+
+var changeToPath = function (path) {
+  Session.set("groupPath", path);
+  Session.set("rerunScheduled", true);
+  // pretend there's just been a hot code push
+  // so we run the tests completely fresh.
+  Meteor._reload.reload();
+};
+
+Template.groupNav.events({
+  "click .group": function () {
+    changeToPath(this.path);
+  },
+  "click .rerun": function () {
+    Session.set("rerunScheduled", true);
+    Meteor._reload.reload();
+  }
+});
+
+Template.test_group.events({
+  "click .groupname": function () {
+    changeToPath(this.path);
+  }
 });
 
 Template.test_table.running = function() {
-  var cx = Meteor.deps.Context.current;
-  if (cx) {
-    resultDeps.push(cx);
-  }
-
+  resultsDeps.depend();
   return running;
 };
 
 Template.test_table.passed = function() {
-  var cx = Meteor.deps.Context.current;
-  if (cx) {
-    resultDeps.push(cx);
-  }
+  resultsDeps.depend();
 
   // walk whole tree to look for failed tests
   var walk = function (groups) {
@@ -49,10 +129,7 @@ Template.test_table.passed = function() {
 
 
 Template.test_table.total_test_time = function() {
-  var cx = Meteor.deps.Context.current;
-  if (cx) {
-    resultDeps.push(cx);
-  }
+  resultsDeps.depend();
 
   // walk whole tree to get all tests
   var walk = function (groups) {
@@ -75,12 +152,12 @@ Template.test_table.total_test_time = function() {
 
 
 Template.test_table.data = function() {
-  var cx = Meteor.deps.Context.current;
-  if (cx) {
-    resultDeps.push(cx);
-  }
-
+  resultsDeps.depend();
   return resultTree;
+};
+Template.test_table.failedTests = function() {
+  resultsDeps.depend();
+  return failedTests;
 };
 
 Template.test.test_status_display = function() {
@@ -112,12 +189,12 @@ Template.test.test_class = function() {
   return classes.join(' ');
 };
 
-Template.test.events = {
+Template.test.events({
   'click .testname': function() {
     this.expanded = ! this.expanded;
-    _resultsChanged();
+    resultsDeps.changed();
   }
-};
+});
 
 Template.test.eventsArray = function() {
   var events = _.filter(this.events, function(e) {
@@ -154,7 +231,7 @@ Template.test.eventsArray = function() {
   });
 };
 
-Template.event.events = {
+Template.event.events({
   'click .debug': function () {
     // the way we manage groupPath, shortName, cookies, etc, is really
     // messy. needs to be aggressively refactored.
@@ -162,32 +239,50 @@ Template.event.events = {
                   test: this.cookie.shortName});
     Meteor._debugTest(this.cookie, reportResults);
   }
-};
+});
 
 Template.event.get_details = function() {
+
+  var prepare = function(details) {
+    return _.compact(_.map(details, function(val, key) {
+
+      // You can end up with a an undefined value, e.g. using
+      // isNull without providing a message attribute: isNull(1).
+      // No need to display those.
+      if (!_.isUndefined(val)) {
+        return {
+          key: key,
+          val: val
+        };
+      } else {
+        return undefined;
+      }
+    }));
+  };
+
   var details = this.details;
+
   if (! details) {
     return null;
   } else {
-    // XXX XXX We need something better than stringify!
-    // stringify([undefined]) === "[null]"
-    return JSON.stringify(details);
+
+    var type = details.type;
+    var stack = details.stack;
+
+    details = _.clone(details);
+    delete details.type;
+    delete details.stack;
+
+    return {
+      type: type,
+      stack: stack,
+      details: prepare(details)
+    };
   }
 };
 
 Template.event.is_debuggable = function() {
   return !!this.cookie;
-};
-
-
-var resultTree = [];
-var resultDeps = [];
-
-var _resultsChanged = function() {
-  _.each(resultDeps, function(cx) {
-    cx.invalidate();
-  });
-  resultDeps.length = 0;
 };
 
 var _testTime = function(t) {
@@ -226,21 +321,26 @@ var _testStatus = function(t) {
 // possibly 'events'.
 var _findTestForResults = function (results) {
   var groupPath = results.groupPath; // array
-
   if ((! _.isArray(groupPath)) || (groupPath.length < 1)) {
     throw new Error("Test must be part of a group");
   }
 
   var group;
+  var i = 0;
   _.each(groupPath, function(gname) {
     var array = (group ? (group.groups || (group.groups = []))
                  : resultTree);
     var newGroup = _.find(array, function(g) { return g.name === gname; });
     if (! newGroup) {
-      newGroup = {name: gname, parent: (group || null)}; // create group
+      newGroup = {
+        name: gname,
+        parent: (group || null),
+        path: groupPath.slice(0, i+1)
+      }; // create group
       array.push(newGroup);
     }
     group = newGroup;
+    i++;
   });
 
   var testName = results.test;
@@ -250,8 +350,13 @@ var _findTestForResults = function (results) {
                                   t.server === server; });
   if (! test) {
     // create test
-    test = {name: testName, parent: group, server: server};
+    var nameParts = _.clone(groupPath);
+    nameParts.push(testName);
+    var fullName = nameParts.join(' - ');
+    test = {name: testName, parent: group, server: server, fullName: fullName};
     group.tests.push(test);
+    totalCount++;
+    countDeps.changed();
   }
 
   return test;
@@ -277,19 +382,40 @@ var reportResults = function(results) {
     });
     test.events = out;
   }
+  var status = _testStatus(test);
+  if (status === "failed") {
+    failedCount++;
+    countDeps.changed();
+    // Expand a failed test (but only set this if the user hasn't clicked on the
+    // test name yet).
+    if (test.expanded === undefined)
+      test.expanded = true;
+    if (!_.contains(failedTests, test.fullName))
+      failedTests.push(test.fullName);
+  } else if (status === "succeeded") {
+    passedCount++;
+    countDeps.changed();
+  }
 
   _.defer(_throttled_update);
 };
 
 // forget all of the events for a particular test
-var forgetEvents = function (test) {
-  var test = _findTestForResults(test);
-
+var forgetEvents = function (results) {
+  var test = _findTestForResults(results);
+  var status = _testStatus(test);
+  if (status === "failed") {
+    failedCount--;
+    countDeps.changed();
+  } else if (status === "succeeded") {
+    passedCount--;
+    countDeps.changed();
+  }
   delete test.events;
-  _resultsChanged();
+  resultsDeps.changed();
 };
 
 var _throttled_update = _.throttle(function() {
-  _resultsChanged();
-  Meteor.flush();
+  resultsDeps.changed();
+  Deps.flush();
 }, 500);

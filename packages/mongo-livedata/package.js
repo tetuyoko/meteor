@@ -12,8 +12,10 @@ Package.describe({
   internal: true
 });
 
+Npm.depends({mongodb: "1.2.13"});
+
 Package.on_use(function (api) {
-  api.use(['uuid', 'json', 'underscore', 'minimongo', 'logging', 'livedata'],
+  api.use(['random', 'ejson', 'json', 'underscore', 'minimongo', 'logging', 'livedata'],
           ['client', 'server']);
 
   api.add_files('mongo_driver.js', 'server');
@@ -27,4 +29,7 @@ Package.on_test(function (api) {
   api.use('tinytest');
   api.use('test-helpers');
   api.add_files('mongo_livedata_tests.js', ['client', 'server']);
+  api.add_files('allow_tests.js', ['client', 'server']);
+  api.add_files('observe_changes_tests.js', ['client', 'server']);
 });
+

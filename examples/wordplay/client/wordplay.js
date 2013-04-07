@@ -13,19 +13,6 @@ var game = function () {
   return me && me.game_id && Games.findOne(me.game_id);
 };
 
-var create_my_player = function (name) {
-  // kill my bad words after 5 seconds.
-  Words.find({player_id: Session.get('player_id'), state: 'bad'})
-    .observe({
-      added: function (word) {
-        setTimeout(function () {
-          $('#word_' + word._id).fadeOut(1000, function () {
-            Words.remove(word._id);
-          });
-        }, 5000);
-      }});
-};
-
 var set_selected_positions = function (word) {
   var paths = paths_for_word(game().board, word.toUpperCase());
   var in_a_path = [];
@@ -85,7 +72,7 @@ Template.lobby.disabled = function () {
 };
 
 
-Template.lobby.events = {
+Template.lobby.events({
   'keyup input#myname': function (evt) {
     var name = $('#lobby input#myname').val().trim();
     Players.update(Session.get('player_id'), {$set: {name: name}});
@@ -93,7 +80,7 @@ Template.lobby.events = {
   'click button.startgame': function () {
     Meteor.call('start_new_game');
   }
-};
+});
 
 //////
 ////// board template: renders the board and the clock given the
@@ -125,13 +112,13 @@ Template.board.clock = function () {
   return min + ':' + (sec < 10 ? ('0' + sec) : sec);
 };
 
-Template.board.events = {
+Template.board.events({
   'click .square': function (evt) {
     var textbox = $('#scratchpad input');
     textbox.val(textbox.val() + evt.target.innerHTML);
     textbox.focus();
   }
-};
+});
 
 //////
 ////// scratchpad is where we enter new words.
@@ -141,7 +128,7 @@ Template.scratchpad.show = function () {
   return game() && game().clock > 0;
 };
 
-Template.scratchpad.events = {
+Template.scratchpad.events({
   'click button, keyup input': function (evt) {
     var textbox = $('#scratchpad input');
     // if we clicked the button or hit enter
@@ -160,17 +147,17 @@ Template.scratchpad.events = {
       set_selected_positions(textbox.val());
     }
   }
-};
+});
 
 Template.postgame.show = function () {
   return game() && game().clock === 0;
 };
 
-Template.postgame.events = {
+Template.postgame.events({
   'click button': function (evt) {
     Players.update(Session.get('player_id'), {$set: {game_id: null}});
   }
-}
+});
 
 //////
 ////// scores shows everyone's score and word list.
@@ -225,7 +212,7 @@ Meteor.startup(function () {
 
   // subscribe to all the players, the game i'm in, and all
   // the words in that game.
-  Meteor.autosubscribe(function () {
+  Deps.autorun(function () {
     Meteor.subscribe('players');
 
     if (Session.get('player_id')) {

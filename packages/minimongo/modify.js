@@ -18,20 +18,20 @@ LocalCollection._modify = function (doc, mod) {
   var new_doc;
 
   if (!is_modifier) {
-    if (mod._id && doc._id !== mod._id)
+    if (mod._id && !EJSON.equals(doc._id, mod._id))
       throw Error("Cannot change the _id of a document");
 
     // replace the whole document
     for (var k in mod) {
       if (k.substr(0, 1) === '$')
-        throw Error("Field name may not start with '$'");
+        throw Error("When replacing document, field name may not start with '$'");
       if (/\./.test(k))
-        throw Error("Field name may not contain '.'");
+        throw Error("When replacing document, field name may not contain '.'");
     }
     new_doc = mod;
   } else {
     // apply modifiers
-    var new_doc = LocalCollection._deepcopy(doc);
+    var new_doc = EJSON.clone(doc);
 
     for (var op in mod) {
       var mod_func = LocalCollection._modifiers[op];
@@ -55,11 +55,14 @@ LocalCollection._modify = function (doc, mod) {
     }
   }
 
-  // move new document into place
-  for (var k in doc) {
+  // move new document into place.
+  _.each(_.keys(doc), function (k) {
+    // Note: this used to be for (var k in doc) however, this does not
+    // work right in Opera. Deleting from a doc while iterating over it
+    // would sometimes cause opera to skip some keys.
     if (k !== '_id')
       delete doc[k];
-  }
+  });
   for (var k in new_doc) {
     doc[k] = new_doc[k];
   }
@@ -137,7 +140,10 @@ LocalCollection._modifiers = {
     }
   },
   $set: function (target, field, arg) {
-    target[field] = LocalCollection._deepcopy(arg);
+    if (field === '_id' && !EJSON.equals(arg, target._id))
+      throw Error("Cannot change the _id of a document");
+
+    target[field] = EJSON.clone(arg);
   },
   $unset: function (target, field, arg) {
     if (target !== undefined) {
@@ -155,7 +161,7 @@ LocalCollection._modifiers = {
     else if (!(x instanceof Array))
       throw Error("Cannot apply $push modifier to non-array");
     else
-      x.push(LocalCollection._deepcopy(arg));
+      x.push(EJSON.clone(arg));
   },
   $pushAll: function (target, field, arg) {
     if (!(typeof arg === "object" && arg instanceof Array))

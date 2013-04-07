@@ -26,27 +26,55 @@ Handlebars = {};
  * partial.)
  */
 
+
 Handlebars.to_json_ast = function (code) {
-  var ast = require("handlebars").parse(code);
-  var _ = require('../../packages/underscore/underscore.js'); // XXX super lame
+  // We need handlebars and underscore, but this is bundle time, so
+  // we load them using 'require'.
+  // If we're in a unit test right now, we're actually in the server
+  // run-time environment; we have '_' but not 'require'.
+  // This is all very hacky.
+  var req = (typeof require === 'undefined' ?
+             Npm.require : require);
+  var path = req('path');
+  var _ = req("underscore");
+  var ast = req("handlebars").parse(code);
+
+  // Recreate Handlebars.Exception to properly report error messages
+  // and stack traces. (https://github.com/wycats/handlebars.js/issues/226)
+  makeHandlebarsExceptionsVisible(req);
 
   var identifier = function (node) {
     if (node.type !== "ID")
       throw new Error("got ast node " + node.type + " for identifier");
     // drop node.isScoped. this is true if there was a 'this' or '.'
     // anywhere in the path. vanilla handlebars will turn off
-    // helpers lookup if isScoped is true (they're trying to handle
-    // 'this.a' but catch 'a.this.this' as collateral damage)
+    // helpers lookup if isScoped is true, but this is too restrictive
+    // for us.
     var ret = [node.depth];
+    // we still want to turn off helper lookup if path starts with 'this.'
+    // as in {{this.foo}}, which means it has to look different from {{foo}}
+    // in our AST.  signal the presence of 'this' in our AST using an empty
+    // path segment.
+    if (/^this\./.test(node.original))
+      ret.push('');
     return ret.concat(node.parts);
   };
 
   var value = function (node) {
+    // Work around handlebars.js Issue #422 - Negative integers for
+    // helpers get trapped as ID. handlebars doesn't support floating
+    // point, just integers.
+    if (node.type === 'ID' && /^-\d+$/.test(node.string)) {
+      // Reconstruct node
+      node.type = 'INTEGER';
+      node.integer = node.string;
+    }
+
     var choices = {
       ID: function (node) {return identifier(node);},
       STRING: function (node) {return node.string;},
-      INTEGER: function (node) {return node.integer;},
-      BOOLEAN: function (node) {return node.bool;},
+      INTEGER: function (node) {return +node.integer;},
+      BOOLEAN: function (node) {return (node.bool === 'true');}
     };
     if (!(node.type in choices))
       throw new Error("got ast node " + node.type + " for value");
@@ -124,4 +152,15 @@ Handlebars.to_json_ast = function (code) {
   if (ast.type !== "program")
     throw new Error("got ast node " + node.type + " at toplevel");
   return template(ast.statements);
+};
+
+var makeHandlebarsExceptionsVisible = function (req) {
+  req("handlebars").Exception = function(message) {
+    this.message = message;
+    // In Node, if we don't do this we don't see the message displayed
+    // nor the right stack trace.
+    Error.captureStackTrace(this, arguments.callee);
+  };
+  req("handlebars").Exception.prototype = new Error();
+  req("handlebars").Exception.prototype.name = 'Handlebars.Exception';
 };

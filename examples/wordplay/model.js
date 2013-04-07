@@ -38,13 +38,13 @@ var ADJACENCIES = [
 ];
 
 // generate a new random selection of letters.
-var new_board = function () {
+new_board = function () {
   var board = [];
   var i;
 
   // pick random letter from each die
   for (i = 0; i < 16; i += 1) {
-    board[i] = DICE[i].split('')[Math.floor(Math.random() * 6)];
+    board[i] = Random.choice(DICE[i]);
   }
 
   // knuth shuffle
@@ -62,7 +62,7 @@ var new_board = function () {
 // board.  each path is an array of board positions 0-15.  a valid
 // path can use each position only once, and each position must be
 // adjacent to the previous position.
-var paths_for_word = function (board, word) {
+paths_for_word = function (board, word) {
   var valid_paths = [];
 
   var check_path = function (word, path, positions_to_try) {
@@ -109,7 +109,7 @@ Meteor.methods({
     }
 
     // now only on the server, check against dictionary and score it.
-    if (Meteor.is_server) {
+    if (Meteor.isServer) {
       if (DICTIONARY.indexOf(word.word.toLowerCase()) === -1) {
         Words.update(word._id, {$set: {score: 0, state: 'bad'}});
       } else {
@@ -121,7 +121,7 @@ Meteor.methods({
 });
 
 
-if (Meteor.is_server) {
+if (Meteor.isServer) {
   // publish all the non-idle players.
   Meteor.publish('players', function () {
     return Players.find({idle: false});

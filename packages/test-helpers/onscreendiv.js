@@ -9,11 +9,11 @@
 
 // Constructor, with optional 'new':
 // var d = [new] OnscreenDiv([frag])
-var OnscreenDiv = function(optFrag) {
+OnscreenDiv = function(optFrag) {
   if (! (this instanceof OnscreenDiv))
     return new OnscreenDiv(optFrag);
 
-  this.div = Meteor.ui._htmlToFragment(
+  this.div = DomUtils.htmlToFragment(
     '<div class="OnscreenDiv" style="display: none"></div>').firstChild;
   document.body.appendChild(this.div);
 
@@ -43,18 +43,31 @@ OnscreenDiv.prototype.node = function() {
 };
 
 // remove the DIV from the document and trigger
-// "fast GC" -- i.e., after the next Meteor.flush()
+// "fast GC" -- i.e., after the next Deps.flush()
 // the DIV will be fully cleaned up by LiveUI.
 OnscreenDiv.prototype.kill = function() {
-  // remove DIV from document by putting it in a fragment
-  var frag = document.createDocumentFragment();
-  frag.appendChild(this.div);
-  // instigate clean-up on next flush()
-  Meteor.ui._hold(frag);
-  Meteor.ui._release(frag);
+  var self = this;
+  if (self.div.parentNode)
+    self.div.parentNode.removeChild(self.div);
+
+  Deps.afterFlush(function () {
+    Spark.finalize(self.div);
+  });
 };
 
 // remove the DIV from the document
 OnscreenDiv.prototype.remove = function() {
   this.div.parentNode.removeChild(this.div);
+};
+
+// Show the div (which is otherwise display:none),
+// for tests that require it or for debugging of tests.
+// If invisibly=true, make the div 0-height to obscure
+// the contents.
+OnscreenDiv.prototype.show = function(invisibly) {
+  this.div.style.display = "block";
+  if (invisibly) {
+    this.div.style.height = 0;
+    this.div.style.overflow = 'hidden';
+  }
 };

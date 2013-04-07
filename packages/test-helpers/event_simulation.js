@@ -1,4 +1,4 @@
-var simulateEvent = function (node, event, args) {
+simulateEvent = function (node, event, args) {
   node = (node instanceof $ ? node[0] : node);
 
   if (document.createEvent) {
@@ -13,21 +13,25 @@ var simulateEvent = function (node, event, args) {
   }
 };
 
-var focusElement = function(elem) {
+focusElement = function(elem) {
+  // This sequence is for benefit of IE 8 and 9;
+  // test there before changing.
+  window.focus();
   elem.focus();
-  elem.focus(); // IE 8 seems to need a second call!
+  elem.focus();
+
   // focus() should set document.activeElement
   if (document.activeElement !== elem)
     throw new Error("focus() didn't set activeElement");
 };
 
-var blurElement = function(elem) {
+blurElement = function(elem) {
   elem.blur();
   if (document.activeElement === elem)
     throw new Error("blur() didn't affect activeElement");
 };
 
-var clickElement = function(elem) {
+clickElement = function(elem) {
   if (elem.click)
     elem.click(); // supported by form controls cross-browser; most native way
   else

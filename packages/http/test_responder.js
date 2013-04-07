@@ -1,5 +1,3 @@
-(function () {
-
 var TEST_RESPONDER_ROUTE = "/http_test_responder";
 
 var respond = function(req, res) {
@@ -22,13 +20,16 @@ var respond = function(req, res) {
     res.end("REDIRECT TO FOO");
     return;
   } else if (req.url.slice(0,6) === "/login") {
-    var connect = __meteor_bootstrap__.require('connect');
+    var connect = Npm.require('connect');
     var username = 'meteor';
     // get password from query string
     var password = req.url.slice(7);
     // realm is displayed in dialog box if one pops up, avoid confusion
     var realm = TEST_RESPONDER_ROUTE+"/login";
-    var checker = connect.basicAuth(username, password, realm);
+    var validate = function(user, pass) {
+      return user === username && pass === password;
+    };
+    var checker = connect.basicAuth(validate, realm);
     var success = false;
     checker(req, res, function() {
       success = true;
@@ -65,7 +66,7 @@ var respond = function(req, res) {
       response_string = JSON.stringify(response_data);
 
     res.statusCode = 200;
-    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.end(response_string);
   });
 
@@ -78,5 +79,3 @@ var run_responder = function() {
 };
 
 run_responder();
-
-})();
