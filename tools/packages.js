@@ -112,6 +112,8 @@ var Package = function () {
     depends: function (npmDependencies) {
       if (self.npmDependencies)
         throw new Error("Can only call `Npm.depends` once in package " + self.name + ".");
+      if (typeof npmDependencies !== 'object')
+        throw new Error("The argument to Npm.depends should look like: {gcd: '0.0.0'}");
 
       // don't allow npm fuzzy versions so that there is complete
       // consistency when deploying a meteor app
@@ -236,7 +238,13 @@ _.extend(Package.prototype, {
       api.use(project.get_packages(app_dir));
 
       // -- Source files --
-      api.add_files(sources_except(api, "server"), "client");
+      var shouldLoadRaw = function (filename) {
+        return filename.indexOf('client' + path.sep + 'compatibility' + path.sep) !== -1;
+      };
+      var clientFiles = sources_except(api, "server");
+      api.add_files(_.filter(clientFiles, shouldLoadRaw), "client", {raw: true});
+      api.add_files(_.reject(clientFiles, shouldLoadRaw), "client");
+
       api.add_files(sources_except(api, "client"), "server");
     });
 

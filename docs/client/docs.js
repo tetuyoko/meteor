@@ -242,6 +242,12 @@ var toc = [
       {name: "Reactivity isolation", style: "noncode", id: "isolate"}
      ],
 
+    "Match", [
+      "check",
+      "Match.test",
+      {name: "Match patterns", style: "noncode"}
+    ],
+
     "Timers", [
       "Meteor.setTimeout",
       "Meteor.setInterval",
@@ -288,6 +294,7 @@ var toc = [
       {name: "EJSON.equals", id: "ejson_equals"},
       {name: "EJSON.clone", id: "ejson_clone"},
       {name: "EJSON.newBinary", id: "ejson_new_binary"},
+      {name: "EJSON.isBinary", id: "ejson_is_binary"},
       {name: "EJSON.addType", id: "ejson_add_type"},
       [
         {instance: "instance", id: "ejson_type_clone", name: "clone"},
@@ -312,8 +319,9 @@ var toc = [
 
   "Packages", [ [
     "accounts-ui",
-    "appcache",
     "amplify",
+    "appcache",
+    "audit-argument-checks",
     "backbone",
     "bootstrap",
     "coffeescript",
